@@ -110,5 +110,8 @@
   },
   "footer": {
     "socials": {}
+  },
+  "fonts": {
+    "family": "Open Sans"
   }
 }
