@@ -74,8 +74,6 @@ Claude Code 搭建的工具由三层组成：
 通过 OpenAlex Works API 用标题搜索每篇参考文献，获取 authorships 字段中的 countries 信息
 若某篇文献的 countr
 
-
-
 ies 为空，则进一步调用 OpenAlex Author API，通过 author id 查询 affiliations[].institution.country_code 获取国家信息
 汇总所有参考文献的作者国家，判断是否满足：参考文献 ≥ 5 条，且作者来源国家 ≥ 3 个
 前端展示每条参考文献的标题、作者、国家来源，以及最终的合规性判断结果
