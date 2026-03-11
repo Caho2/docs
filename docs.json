@@ -52,10 +52,9 @@
           {
             "group": "3. 业务场景实战",
             "pages": [
-              "scenarios/read-docs",
-              "scenarios/check-docs",
-              "scenarios/rewrite",
-              "scenarios/data-analysis"
+              "scenarios/cc-vs-web",
+              "scenarios/data-report",
+              "scenarios/ref-checker"
             ]
           },
           {

@@ -1,0 +1,177 @@
+---
+title: "场景二：论文参考文献国家分析"
+description: "上传论文 PDF，自动检查参考文献是否来自足够多的国家，几句话搭出完整的 Web 工具"
+---
+
+## 背景
+
+很多期刊和基金申请要求论文的参考文献"至少 5 篇、来自 3 个及以上国家"。手动核查的流程极为繁琐：
+
+1. 从 PDF 里把参考文献一条条复制出来
+2. 逐篇去 Google Scholar 或数据库查找作者单位
+3. 手动记录每位作者的国籍，汇总统计
+
+一篇论文几十条参考文献，光查询就要花半小时以上，还容易漏查。
+
+<Info>
+  **这是一个"从零搭工具"的场景。** 不是让 Claude Code 帮你操作已有软件，而是直接用对话把一个完整的 Web 应用搭出来——前端页面、后端接口、OCR 识别、学术数据库查询，全部一次性完成。
+</Info>
+
+## 工具功能
+
+最终搭出来的工具只需三步：
+
+```
+上传论文 PDF  →  自动识别全部参考文献  →  查询每篇文献的作者来源国并汇总
+```
+
+结果页面会显示：
+- 是否满足"≥5 篇、来自 ≥3 个国家"的要求
+- 每条参考文献对应哪些国家
+- 所有涉及国家的完整列表
+
+## 实现原理
+
+Claude Code 搭建的工具由三层组成：
+
+```
+前端（HTML/Tailwind）
+    ↓ 上传 PDF
+后端（Python / FastAPI）
+    ↓ ① OCR：调用 PaddleOCR API，将 PDF 转为 Markdown
+      ② 解析：从 Markdown 中识别参考文献区域，逐条提取
+      ③ 查询：调用 OpenAlex API，查询每篇文献的作者所属国家
+    ↓ 返回 JSON 结果
+前端渲染结果卡片
+```
+
+整个过程完全自动，用户只需上传 PDF，等待 30 秒到 2 分钟即可看到结果。
+
+## 对话过程
+
+### 第一轮：描述需求
+
+```
+帮我做一个 Web 工具：
+用户上传论文 PDF，工具自动识别里面的参考文献，
+然后查询每篇文献的作者来自哪些国家，
+最后告诉用户"参考文献是否来自 3 个以上国家"。
+
+技术栈：Python + FastAPI 后端，HTML 前端，
+用 PaddleOCR API 做 PDF 识别，用 OpenAlex API 查询文献信息。
+```
+
+Claude Code 直接生成了：
+- `main.py`：FastAPI 后端，包含 OCR、参考文献解析、OpenAlex 查询全部逻辑
+- `static/index.html`：带拖拽上传、进度条、结果展示的完整前端页面
+
+### 第二轮：运行与调试
+
+遇到 500 报错后，直接把报错信息发给 Claude Code：
+
+```
+帮我检查一下为什么接口报错：
+POST http://localhost:8000/api/analyze 500 (Internal Server Error)
+```
+
+Claude Code 同时读取了前后端代码，定位到两处问题：
+- 后端缺少 `try/except`，异常以纯文本形式返回而非 JSON
+- 前端未检查 `resp.ok` 就直接调用 `.json()`，导致解析失败
+
+两处代码各修改几行，问题解决。
+
+## 核心代码结构
+
+<Tabs>
+  <Tab title="后端接口">
+    ```python
+    @app.post("/api/analyze")
+    async def analyze_pdf(file: UploadFile = File(...)):
+        pdf_bytes = await file.read()
+
+        # Step 1：OCR 识别 PDF
+        try:
+            markdown = await pdf_to_markdown(pdf_bytes)
+        except Exception as e:
+            return {"success": False, "error": f"OCR 识别失败：{e}"}
+
+        # Step 2：提取参考文献条目
+        refs = extract_references(markdown)
+        if not refs:
+            return {"success": False, "error": "未识别到参考文献"}
+
+        # Step 3：并发查询 OpenAlex
+        sem = asyncio.Semaphore(5)
+        async with httpx.AsyncClient(timeout=30) as client:
+            tasks = [analyze_one_reference(client, ref, i+1, sem)
+                     for i, ref in enumerate(refs)]
+            results = await asyncio.gather(*tasks)
+
+        return {
+            "success": True,
+            "total_refs": len(refs),
+            "all_countries": sorted(all_countries),
+            "meets_requirement": len(all_countries) >= 3 and len(refs) >= 5,
+            "references": results,
+        }
+    ```
+  </Tab>
+  <Tab title="参考文献解析">
+    ```python
+    def extract_references(markdown: str) -> list[str]:
+        # 定位参考文献区域（支持中英文标题）
+        HEADERS = ["references", "bibliography", "参考文献"]
+        best_pos = max(markdown.lower().rfind(h) for h in HEADERS)
+        ref_section = markdown[best_pos:] if best_pos != -1 else markdown[-30%:]
+
+        # 按编号格式逐条分割：[1] 或 1. 或 (1)
+        refs = []
+        for line in ref_section.split("\n"):
+            if re.match(r'^\s*(\[\d+\]|\d+[\.\)])', line):
+                refs.append(re.sub(r'^\s*\S+\s*', '', line))
+        return refs
+    ```
+  </Tab>
+</Tabs>
+
+## 效果对比
+
+<Tabs>
+  <Tab title="手动核查">
+    1. 从 PDF 复制参考文献列表
+    2. 逐篇搜索，找到作者单位
+    3. 查找单位对应国家
+    4. 在表格里逐条记录
+    5. 最后统计国家数量
+    6. **一篇论文约需 30~60 分钟**
+  </Tab>
+  <Tab title="用这个工具">
+    1. 打开浏览器，上传 PDF
+    2. 等待 1~2 分钟
+    3. 直接看结果：是否达标 + 每条文献对应国家
+    4. **全程无需任何手动操作**
+  </Tab>
+</Tabs>
+
+## 可以进一步扩展的方向
+
+工具搭好后，可以继续用对话扩展功能：
+
+```
+帮我在结果页面加一个"导出 Excel"按钮，
+把每条参考文献、对应国家、是否在 OpenAlex 找到，导出成表格。
+```
+
+```
+参考文献里有些中文文献，OpenAlex 查不到，
+帮我接入知网 / CrossRef 作为备用数据源。
+```
+
+```
+帮我加一个批量模式：支持同时上传多篇论文，
+生成一份汇总表，每行对应一篇论文及其达标状态。
+```
+
+<Tip>
+  **起点越具体，代码越准确。** 提需求时把"用什么 API""返回什么格式""达标条件是什么"一起说清楚，Claude Code 往往第一轮就能给出可运行的版本，不需要来回调整。
+</Tip>
